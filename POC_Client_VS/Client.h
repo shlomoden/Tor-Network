@@ -3,8 +3,12 @@
 #include <WinSock2.h>
 #include <string>
 #include <vector>
+#include <chrono>
+#include <thread>
 
-class Client 
+class EncryptionManager;
+
+class Client
 {
 public:
     Client();
@@ -17,6 +21,7 @@ public:
     void sendEncryptedData(const SOCKET sc, const std::vector<unsigned char>& encryptedData);
 
     void manageConnection();
+    void receiveMessages(EncryptionManager& encManager);
 
 private:
     SOCKET _clientSocket;

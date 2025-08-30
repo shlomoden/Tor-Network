@@ -3,6 +3,7 @@
 #include <exception>
 #include <stdexcept>
 #include <WS2tcpip.h>
+#include <thread>
 #include "EncryptionManager.h"
 
 Client::Client()
@@ -46,21 +47,21 @@ void Client::connectToServer(std::string serverIP, int port)
 	manageConnection();
 }
 
-void Client::sendData(const std::string& data) 
+void Client::sendData(const std::string& data)
 {
-    send(_clientSocket, data.c_str(), data.size(), 0);
+	send(_clientSocket, data.c_str(), data.size(), 0);
 }
 
-std::string Client::receiveData() 
+std::string Client::receiveData()
 {
-    char buffer[1024];
-    int bytesReceived = recv(_clientSocket, buffer, sizeof(buffer), 0);
-    if (bytesReceived > 0) {
-        return std::string(buffer, bytesReceived);
-    }
-    return "";
+	char buffer[1024];
+	int bytesReceived = recv(_clientSocket, buffer, sizeof(buffer), 0);
+	if (bytesReceived > 0) {
+		return std::string(buffer, bytesReceived);
+	}
+	return "";
 }
-std::vector<unsigned char> Client ::getPartFromSocketVec(const SOCKET sc, const int bytesNum, const int flags)
+std::vector<unsigned char> Client::getPartFromSocketVec(const SOCKET sc, const int bytesNum, const int flags)
 {
 	if (bytesNum == 0)
 	{
@@ -112,7 +113,7 @@ void Client::manageConnection()
 
 	publicRSAKey = receiveData();
 
-	std::cout << "Received the Data: " << publicRSAKey << std::endl;
+	std::cout << "Received RSA Public Key" << std::endl;
 
 	if (!publicRSAKey.empty())
 	{
@@ -124,24 +125,74 @@ void Client::manageConnection()
 		// send encryptedKey over the socket
 		sendData(std::string(encryptedKey.begin(), encryptedKey.end()));
 
+		// Get client ID
+		std::cout << "Enter your client ID: ";
+		std::string clientId;
+		std::getline(std::cin, clientId);
+
+		// Send encrypted client ID
+		std::vector<unsigned char> clientIdVec(clientId.begin(), clientId.end());
+		sendEncryptedData(_clientSocket, encManager.aesEncrypt(clientIdVec, encManager.getAESKey()));
+
+		// Receive welcome message
 		std::vector<unsigned char> decryptedAES = encManager.aesDecrypt(getPartFromSocketVec(_clientSocket, 512, 0), encManager.getAESKey());
-		std::string decryptedStr1(decryptedAES.begin(), decryptedAES.end());
-		std::cout << "Msg recv: " << decryptedStr1 << std::endl; 
+		std::string welcomeMsg(decryptedAES.begin(), decryptedAES.end());
+		std::cout << "Server says: " << welcomeMsg << std::endl;
 
-		std::string result = "Hiiiii!";
-		std::vector<unsigned char> plaintextVec1(result.begin(), result.end());
-		sendEncryptedData(_clientSocket, encManager.aesEncrypt(plaintextVec1, encManager.getAESKey()));
+		// Start message receiving thread
+		std::thread receiveThread(&Client::receiveMessages, this, std::ref(encManager));
+		receiveThread.detach();
 
-		std::cout << "Sent: " << result << std::endl;
-		
-		decryptedAES = encManager.aesDecrypt(getPartFromSocketVec(_clientSocket, 512, 0), encManager.getAESKey());
-		std::string decryptedStr2(decryptedAES.begin(), decryptedAES.end());
-		std::cout << "Msg recv: " << decryptedStr2 << std::endl;
-			
-		result = "Goodbye";
-		std::vector<unsigned char> plaintextVec2(result.begin(), result.end());
-		sendEncryptedData(_clientSocket, encManager.aesEncrypt(plaintextVec2, encManager.getAESKey()));
+		// Main interaction loop
+		std::cout << "\nCommands:" << std::endl;
+		std::cout << "- Type 'LIST' to see connected clients" << std::endl;
+		std::cout << "- Type 'TARGET_ID:MESSAGE' to send message to a specific client" << std::endl;
+		std::cout << "- Type 'Goodbye' to exit" << std::endl;
 
-		std::cout << "Sent: " << result << std::endl;
+		while (true)
+		{
+			std::string userInput;
+			std::cout << "\n> ";
+			std::getline(std::cin, userInput);
+
+			if (userInput.empty()) continue;
+
+			std::vector<unsigned char> inputVec(userInput.begin(), userInput.end());
+			sendEncryptedData(_clientSocket, encManager.aesEncrypt(inputVec, encManager.getAESKey()));
+
+			if (userInput == "Goodbye")
+			{
+				break;
+			}
+
+			// Wait for response (except for Goodbye)
+			std::this_thread::sleep_for(std::chrono::milliseconds(100));
+		}
+
+		std::cout << "Disconnected from server." << std::endl;
+	}
+}
+
+void Client::receiveMessages(EncryptionManager& encManager)
+{
+	try
+	{
+		while (true)
+		{
+			std::vector<unsigned char> decryptedData = encManager.aesDecrypt(getPartFromSocketVec(_clientSocket, 512, 0), encManager.getAESKey());
+			if (decryptedData.empty())
+			{
+				break; // Connection closed
+			}
+
+			std::string message(decryptedData.begin(), decryptedData.end());
+			std::cout << "\n" << message << std::endl;
+			std::cout << "> ";
+			std::cout.flush();
+		}
+	}
+	catch (const std::exception& e)
+	{
+		// Connection closed or error occurred
 	}
 }

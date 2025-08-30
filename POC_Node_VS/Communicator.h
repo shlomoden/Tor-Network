@@ -15,8 +15,15 @@
 #include <condition_variable>
 #include <fstream>
 #include <ctime>
+#include <vector>
 #include "Helper.h";
 #include "EncryptionManager.h"
+
+struct ClientInfo {
+	SOCKET socket;
+	std::string clientId;
+	std::vector<unsigned char> aesKey;
+};
 
 class Communicator
 {
@@ -28,10 +35,12 @@ private:
 	void acceptClient();
 	void clientHandler(SOCKET clientSocket);
 	void acceptLoop();
+	void broadcastMessage(const std::string& senderClientId, const std::string& message, const std::string& targetClientId);
+	std::string getClientList();
+	void removeClient(SOCKET clientSocket);
 
 	SOCKET _communicatorSocket;
-	static std::vector<SOCKET> m_clients;
+	static std::vector<ClientInfo> m_clients;
+	static std::mutex m_clientsMutex;
 	EncryptionManager& encryptionManager;
 };
-
-#pragma once
